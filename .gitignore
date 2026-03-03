@@ -1,0 +1,11 @@
+/01-sem/venv/
+/venv/
+requirements.txt
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+build/
+develop-eggs/
