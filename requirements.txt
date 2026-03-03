@@ -7,7 +7,7 @@ ipython
 ipywidgets
 lightning==2.6.0
 matplotlib==3.10.8
-numpy==1.26.4
+numpy
 opencv-python-headless==4.12.0.88
 pandas==3.0.0
 PuLP==3.3.0
@@ -24,3 +24,4 @@ timm==1.0.24
 torch==2.9.1
 torchmetrics==1.8.2
 torchvision==0.24.1
+ipykernel
