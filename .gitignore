@@ -1,3 +1,4 @@
+
 /01-sem/venv/
 /venv/
 requirements.txt
@@ -9,3 +10,8 @@ __pycache__/
 env/
 build/
 develop-eggs/
+._*
+03-sem-NN/solution.ipynb
+03-sem-NN/test/*
+03-sem-NN/template_x.ipynb
+
