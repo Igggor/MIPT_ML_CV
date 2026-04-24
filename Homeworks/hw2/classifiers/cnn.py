@@ -59,8 +59,24 @@ class ThreeLayerConvNet(object):
         # начало функции loss() #
         ############################################################################
         F, (C, H, W) = num_filters, input_dim # dim size
-        self.params.update({ #...
-                            })
+        
+        H_pool = H // 2
+        W_pool = W // 2
+        
+        W1 = weight_scale * np.random.randn(F, C, filter_size, filter_size)
+        b1 = np.zeros(F)
+        
+        W2 = weight_scale * np.random.randn(F * H_pool * W_pool, hidden_dim)
+        b2 = np.zeros(hidden_dim)
+        
+        W3 = weight_scale * np.random.randn(hidden_dim, num_classes)
+        b3 = np.zeros(num_classes)
+        
+        self.params.update({
+            'W1': W1, 'b1': b1,
+            'W2': W2, 'b2': b2,
+            'W3': W3, 'b3': b3
+        })
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -95,7 +111,14 @@ class ThreeLayerConvNet(object):
         # вы можете использовать функции, определенные в classifiesr/layers.py и #
         # classifiers/layer_utils.py. #
         ############################################################################
-        # 
+        conv_out, conv_cache = conv_forward_naive(X, W1, b1, conv_param)
+        
+        relu1_out, relu1_cache = relu_forward(conv_out)        
+        pool_out, pool_cache = max_pool_forward_naive(relu1_out, pool_param)
+        pool_out_reshaped = pool_out.reshape(pool_out.shape[0], -1)
+        fc1_out, fc1_cache = affine_forward(pool_out_reshaped, W2, b2)
+        relu2_out, relu2_cache = relu_forward(fc1_out)
+        scores, fc2_cache = affine_forward(relu2_out, W3, b3)
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -113,9 +136,32 @@ class ThreeLayerConvNet(object):
         # ПРИМЕЧАНИЕ:  L2-регуляризация включает множитель #
         # равный 0,5 для упрощения выражения для градиента. #
         ############################################################################
-        # loss, dout = softmax_loss(scores, y)                                     # loss and dout
-        # loss += 0.5 * self.reg * (np.sum(W1**2) + np.sum(W2**2) + np.sum(W3**2)) # regularized loss
-        # ...
+        loss, dout = softmax_loss(scores, y)
+        
+        loss += 0.5 * self.reg * (np.sum(W1**2) + np.sum(W2**2) + np.sum(W3**2))
+        
+        drelu2, dW3, db3 = affine_backward(dout, fc2_cache)
+        dW3 += self.reg * W3
+        
+        drelu1 = relu_backward(drelu2, relu2_cache)
+        
+        dfc1, dW2, db2 = affine_backward(drelu1, fc1_cache)
+        dW2 += self.reg * W2
+        
+        dfc1_reshaped = dfc1.reshape(pool_out.shape)
+        
+        dpool = max_pool_backward_naive(dfc1_reshaped, pool_cache)
+        
+        dconv = relu_backward(dpool, relu1_cache)
+        
+        dx, dW1, db1 = conv_backward_naive(dconv, conv_cache)
+        dW1 += self.reg * W1
+        
+        grads = {
+            'W1': dW1, 'b1': db1,
+            'W2': dW2, 'b2': db2,
+            'W3': dW3, 'b3': db3
+        }
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################

@@ -71,7 +71,33 @@ class FullyConnectedNet(object):
         # beta2, etc. Scale parameters should be initialized to ones and shift     #
         # parameters should be initialized to zeros.                               #
         ############################################################################
-        # 
+        
+        # Собираем все размеры слоев
+        layer_dims = [input_dim] + hidden_dims + [num_classes]
+        
+        # Инициализируем веса и смещения для каждого слоя
+        for i in range(1, self.num_layers + 1):
+            # Веса: W1, W2, ...
+            self.params[f'W{i}'] = weight_scale * np.random.randn(
+                layer_dims[i-1], layer_dims[i]
+            )
+            # Смещения: b1, b2, ...
+            self.params[f'b{i}'] = np.zeros(layer_dims[i])
+        
+        # Если используем batch normalization, добавляем gamma и beta
+        if self.normalization == "batchnorm":
+            for i in range(1, self.num_layers):
+                # gamma для каждого скрытого слоя
+                self.params[f'gamma{i}'] = np.ones(hidden_dims[i-1])
+                # beta для каждого скрытого слоя
+                self.params[f'beta{i}'] = np.zeros(hidden_dims[i-1])
+        
+        # Если используем layer normalization, добавляем gamma и beta
+        if self.normalization == "layernorm":
+            for i in range(1, self.num_layers):
+                self.params[f'gamma{i}'] = np.ones(hidden_dims[i-1])
+                self.params[f'beta{i}'] = np.zeros(hidden_dims[i-1])
+        
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -141,7 +167,49 @@ class FullyConnectedNet(object):
         # self.bn_params[1] to the forward pass for the second batch normalization #
         # layer, etc.                                                              #
         ############################################################################
-        # 
+        
+        # Решейпим входные данные
+        X_reshaped = X.reshape(X.shape[0], -1)
+        
+        # Прямой проход для каждого слоя
+        cache_list = []
+        current_out = X_reshaped
+        
+        for i in range(1, self.num_layers + 1):
+            W = self.params[f'W{i}']
+            b = self.params[f'b{i}']
+            
+            # Affine слой
+            current_out, affine_cache = affine_forward(current_out, W, b)
+            cache_list.append(('affine', affine_cache))
+            
+            # Если не последний слой, добавляем нормализацию, ReLU и dropout
+            if i < self.num_layers:
+                # Batch Normalization
+                if self.normalization == "batchnorm":
+                    gamma = self.params[f'gamma{i}']
+                    beta = self.params[f'beta{i}']
+                    current_out, bn_cache = batchnorm_forward(current_out, gamma, beta, self.bn_params[i-1])
+                    cache_list.append(('batchnorm', bn_cache))
+                
+                # Layer Normalization
+                if self.normalization == "layernorm":
+                    gamma = self.params[f'gamma{i}']
+                    beta = self.params[f'beta{i}']
+                    current_out, ln_cache = layernorm_forward(current_out, gamma, beta, self.bn_params[i-1])
+                    cache_list.append(('layernorm', ln_cache))
+                
+                # ReLU
+                current_out, relu_cache = relu_forward(current_out)
+                cache_list.append(('relu', relu_cache))
+                
+                # Dropout
+                if self.use_dropout:
+                    current_out, dropout_cache = dropout_forward(current_out, self.dropout_param)
+                    cache_list.append(('dropout', dropout_cache))
+        
+        scores = current_out
+        
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -164,7 +232,37 @@ class FullyConnectedNet(object):
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
-        # 
+        
+        # Вычисляем softmax loss
+        loss, dout = softmax_loss(scores, y)
+        
+        # Добавляем L2 регуляризацию
+        for i in range(1, self.num_layers + 1):
+            loss += 0.5 * self.reg * np.sum(self.params[f'W{i}']**2)
+        
+        # Обратный проход
+        # Идем с конца к началу
+        for i in range(self.num_layers, 0, -1):
+            layer_type, cache = cache_list.pop()
+            
+            if layer_type == 'affine':
+                dout, dW, db = affine_backward(dout, cache)
+                dW += self.reg * self.params[f'W{i}']
+                grads[f'W{i}'] = dW
+                grads[f'b{i}'] = db
+            elif layer_type == 'relu':
+                dout = relu_backward(dout, cache)
+            elif layer_type == 'dropout':
+                dout = dropout_backward(dout, cache)
+            elif layer_type == 'batchnorm':
+                dout, dgamma, dbeta = batchnorm_backward(dout, cache)
+                grads[f'gamma{i}'] = dgamma
+                grads[f'beta{i}'] = dbeta
+            elif layer_type == 'layernorm':
+                dout, dgamma, dbeta = layernorm_backward(dout, cache)
+                grads[f'gamma{i}'] = dgamma
+                grads[f'beta{i}'] = dbeta
+        
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -220,7 +318,10 @@ self.params, который сопоставляет имена параметр
       
         ############################################################################
         self.params = {
-          ...
+            'W1': weight_scale * np.random.randn(input_dim, hidden_dim),
+            'b1': np.zeros(hidden_dim),
+            'W2': weight_scale * np.random.randn(hidden_dim, num_classes),
+            'b2': np.zeros(num_classes)
         }
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -248,6 +349,16 @@ scores[i, c] — оценка классификации для X[i] и клас
         # TODO: Реализовать прямой проход для двухслойной сети, вычисляя 
         # оценки классов для X и сохраняя их в переменной scores. 
         ############################################################################
+        W1, b1 = self.params['W1'], self.params['b1']
+        W2, b2 = self.params['W2'], self.params['b2']
+        
+        # Решейпим входные данные
+        X_reshaped = X.reshape(X.shape[0], -1)
+        
+        # Прямой проход: affine - relu - affine
+        hidden_out, hidden_cache = affine_forward(X_reshaped, W1, b1)
+        relu_out, relu_cache = relu_forward(hidden_out)
+        scores, score_cache = affine_forward(relu_out, W2, b2)
         
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -268,11 +379,33 @@ scores[i, c] — оценка классификации для X[i] и клас
         # автоматизированные тесты, убедитесь, что ваша L2-регуляризация включает множитель #
         # равный 0,5 для упрощения выражения для градиента. #
         ############################################################################
-        loss, dloss = ...
-        # Убедимся что реализация включает L2 регуляризацию 
+        W1, b1 = self.params['W1'], self.params['b1']
+        W2, b2 = self.params['W2'], self.params['b2']
+        
+        # Softmax loss
+        loss, dout = softmax_loss(scores, y)
+        
+        # L2 регуляризация
         loss += 0.5 * self.reg * (np.sum(W1**2) + np.sum(W2**2))
-        # далее обновим параметры с новыми новыми значениями градиентов
-        ...
+        
+        # Обратный проход
+        # Второй affine слой
+        drelu, dW2, db2 = affine_backward(dout, score_cache)
+        dW2 += self.reg * W2
+        
+        # ReLU
+        dhidden = relu_backward(drelu, relu_cache)
+        
+        # Первый affine слой
+        dX, dW1, db1 = affine_backward(dhidden, hidden_cache)
+        dW1 += self.reg * W1
+        
+        # Сохраняем градиенты
+        grads['W1'] = dW1
+        grads['b1'] = db1
+        grads['W2'] = dW2
+        grads['b2'] = db2
+        
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
